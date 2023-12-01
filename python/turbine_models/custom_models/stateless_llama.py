@@ -2,6 +2,8 @@ import os
 import sys
 import re
 
+from typing import Tuple
+
 os.environ["TORCH_LOGS"] = "dynamic"
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -13,8 +15,13 @@ from iree import runtime as ireert
 from turbine_models.custom_models import remap_gguf
 import safetensors
 
+from tqdm import tqdm
+
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
+DEFAULT_PROMPT = """<s>[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
+"""
 
 import argparse
 
@@ -47,10 +54,8 @@ parser.add_argument(
 parser.add_argument(
     "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
 )
+parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
 
-prompt = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
-"""
 
 # TODO (Dan): replace this with a file once I figure out paths on windows exe
 json_schema = """
@@ -58,282 +63,167 @@ json_schema = """
 """
 
 
-def slice_up_to_step(global_pkv, seq_step, heads, hidden_dim):
-    all_pkv_tensors = []
-    for i in range(heads * 2):
-        sliced = IREE.tensor_slice(
-            global_pkv, i, 0, (0, seq_step), (0, heads), (0, hidden_dim)
-        )  # sequence context dim
-        all_pkv_tensors.append(
-            IREE.tensor_reshape(sliced, 1, seq_step, heads, hidden_dim)
-        )
+def torch_token_generator(prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False):
+    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
+    model = AutoModelForCausalLM.from_pretrained(hf_model_name, torch_dtype=torch.float, use_auth_token=hf_auth_token)
 
-    return all_pkv_tensors
+    initial_input = tokenizer(prompt, return_tensors="pt")
+    input_ids = initial_input.input_ids
+    past_key_values = None
 
+    while True:
+        model_results = model.forward(input_ids, past_key_values=past_key_values)
+        logits = model_results.logits
+        next_token_id = torch.argmax(logits[:, -1, :], dim=1)
+        past_key_values = model_results.past_key_values
 
-def export_transformer_model(
-    hf_model_name,
-    hf_auth_token=None,
-    compile_to="torch",
-    external_weights=None,
-    external_weight_file=None,
-    quantization=None,
-    precision=None,
-):
-    state_schema = pytree.treespec_loads(json_schema)
+        yield next_token_id
+        input_ids = next_token_id.unsqueeze(0)  # Prepare for the next iteration
 
-    mod = AutoModelForCausalLM.from_pretrained(
-        hf_model_name,
-        torch_dtype=torch.float,
-        token=hf_auth_token,
-    )
-    dtype = torch.float32
-    if precision == "f16":
-        mod = mod.half()
-        dtype = torch.float16
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
-    # TODO: generate these values instead of magic numbers
-    HEADS = 32
-    HIDDEN_DIM = 128
-    BATCH_SIZE = 1
-    global_pkv = torch.zeros(
-        size=(HEADS * 2, BATCH_SIZE, MAX_STEP_SEQ, HEADS, HIDDEN_DIM),
-        dtype=dtype,
-    )
+        if next_token_id.item() == tokenizer.eos_token_id and break_on_eos:
+            break
 
-    mapper = {}
-    if external_weights is not None:
-        if external_weights == "safetensors":
-            mod_params = dict(mod.named_parameters())
-            for name in mod_params:
-                mapper["params." + name] = name
-            if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
+def turbine_token_generator(
+    prompt: str, 
+    hf_model_name: str, 
+    vmfb_path: str = None, 
+    external_weight_file: str = None, 
+    hf_auth_token: str = None, 
+    break_on_eos: bool = False
+) -> torch.Tensor:
+    """
+    A generator function for turbine model inference.
 
-        elif external_weights == "gguf":
-            tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
-            mapper = tensor_mapper.mapping
+    :param prompt: The input prompt for the model.
+    :param hf_model_name: The name of the Hugging Face model.
+    :param vmfb_path: Path to the .vmfb model file.
+    :param external_weight_file: Path to the external weight file (optional).
+    :param hf_auth_token: Hugging Face authorization token (optional).
+    :param break_on_eos: Whether to break the loop on end-of-sentence token.
+    :return: Yields a tensor representing the generated token.
+    """
 
-    class StateUpdateModule(CompiledModule):
-        if external_weights:
-            params = export_parameters(
-                mod, external=True, external_scope="", name_mapper=mapper.get
-            )
-        else:
-            params = export_parameters(mod)
-        global_state = export_global(
-            abstractify(global_pkv), uninitialized=True, mutable=True
-        )
-        global_seq_step = export_global(AbstractIndex, mutable=True)
-
-        def run_initialize(self, x=AbstractTensor(BATCH_SIZE, None, dtype=torch.int64)):
-            init_const = [x.dynamic_dim(1) < MAX_STEP_SEQ]
-            token, *state = self.initialize(x, constraints=init_const)
-            self.global_seq_step = IREE.tensor_dim(
-                state[0], 1
-            )  # ? dimension of arbitrarily 0th kv tensor
-            for i in range(HEADS * 2):
-                slice_of_state = IREE.tensor_reshape(
-                    state[i], 1, 1, self.global_seq_step, HEADS, HIDDEN_DIM
-                )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, slice_of_state, i, 0, 0, 0, 0
-                )
-            return token
-
-        def run_forward(self, x=AbstractTensor(1, 1, dtype=torch.int64)):
-            state_arg = slice_up_to_step(
-                self.global_state, self.global_seq_step, HEADS, HIDDEN_DIM
-            )
-            forw_const = (
-                [state_arg[0].dynamic_dim(1) < MAX_STEP_SEQ]
-                + [
-                    x.dynamic_dim(1) == (state_arg[0].dynamic_dim(1))
-                    for x in state_arg[1:]
-                ]
-                + [x.dynamic_dim(1) < MAX_STEP_SEQ for x in state_arg[1:]]
-            )
-            token, *state_update = self.forward(x, *state_arg, constraints=forw_const)
-            for i in range(HEADS * 2):
-                update = IREE.tensor_reshape(
-                    state_update[i], 1, 1, 1, HEADS, HIDDEN_DIM
-                )
-                self.global_state = IREE.tensor_update(
-                    self.global_state, update, i, 0, self.global_seq_step, 0, 0
-                )
-
-            self.global_seq_step = self.global_seq_step + 1
-            return token
-
-        def get_global_state(self):
-            return self.global_state
-
-        def get_seq_step(self):
-            return self.global_seq_step
-
-        @jittable
-        def initialize(input_ids):
-            result = mod.forward(input_ids)
-            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
-            state1_flat = [torch.transpose(x, 1, 2) for x in state1_flat]
-            return token1, *state1_flat
-
-        @jittable
-        def forward(token0: torch.Tensor, *state0_flat):
-            # Unpad the states.
-            state0_flat = [torch.transpose(x, 1, 2) for x in state0_flat]
-            state0 = pytree.tree_unflatten(state0_flat, state_schema)
-            result = mod.forward(token0, past_key_values=state0)
-            state1_flat, _ = pytree.tree_flatten(result.past_key_values)
-            state1_flat = [torch.transpose(x[:, :, -1:, :], 1, 2) for x in state1_flat]
-            token1 = torch.argmax(result.logits[:, -1, :], dim=1)
-            token1 = token1[None, :]
-            return token1, *state1_flat
-
-    import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
-    pre_import_passes = []
-    if quantization == "int4" and not compile_to == "linalg":
-        from shark_turbine.transforms.quantization import mm_group_quant
-        pre_import_passes.append(mm_group_quant.MMGroupQuantRewriterPass)
-    inst = StateUpdateModule(context=Context(), import_to=import_to, pre_import_passes=pre_import_passes)
-    module_str = str(CompiledModule.get_mlir_module(inst))
-    safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-    if compile_to != "vmfb":
-        return module_str, tokenizer
-    else:
-        flags = [
-            "--iree-input-type=torch",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--mlir-print-debuginfo",
-            "--mlir-print-op-on-diagnostic=false",
-            "--iree-llvmcpu-target-cpu-features=host",
-            "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
-            "--iree-llvmcpu-enable-microkernels",
-            "--iree-llvmcpu-stack-allocation-limit=256000",
-            "--iree-stream-resource-index-bits=64",
-            "--iree-vm-target-index-bits=64",
-            "--iree-vm-bytecode-module-strip-source-map=true",
-            "--iree-util-zero-fill-elided-attrs",
-            "--iree-vm-target-truncate-unsupported-floats",
-            "--iree-codegen-check-ir-before-llvm-conversion=false",
-            "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
-            "--iree-opt-const-expr-hoisting=False",
-        ]
-
-        import iree.compiler as ireec
-
-        flatbuffer_blob = ireec.compile_str(
-            module_str,
-            target_backends=["llvm-cpu"],
-            extra_args=flags,
-        )
-        with open(f"{safe_name}.vmfb", "wb+") as f:
-            f.write(flatbuffer_blob)
-        print("saved to ", safe_name + ".vmfb")
-        exit()
-
-
-def run_vmfb_comparison(args):
+    # Create the config for the IREE runtime environment
     config = ireert.Config("local-task")
 
-    if args.external_weight_file:
+    # Load the external weight file if provided
+    if external_weight_file:
         index = ireert.ParameterIndex()
-        index.load(args.external_weight_file)
+        index.load(external_weight_file)
 
-    safe_name = args.hf_model_name.split("/")[-1].strip()
+    # Ensure model name is in a safe format
+    safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
-    if args.vmfb_path:
-        mod = ireert.VmModule.mmap(config.vm_instance, args.vmfb_path)
+
+    # Load the .vmfb model file
+    if vmfb_path:
+        mod = ireert.VmModule.mmap(config.vm_instance, vmfb_path)
     elif os.path.exists(f"{safe_name}.vmfb"):
         mod = ireert.VmModule.mmap(config.vm_instance, f"{safe_name}.vmfb")
     else:
-        sys.exit("no vmfb_path provided, required for run_vmfb")
+        raise FileNotFoundError("No vmfb_path provided, required for run_vmfb")
 
+    # Prepare the modules for the IREE runtime context
     vm_modules = [
         mod,
-        ireert.create_hal_module(config.vm_instance, config.device),
+        ireert.create_hal_module(config.vm_instance, config.device)
     ]
-    if args.external_weight_file:
+
+    # Include parameter module if external weight file is used
+    if external_weight_file:
         param_module = ireert.create_io_parameters_module(
             config.vm_instance, index.create_provider(scope="model")
         )
         vm_modules.insert(0, param_module)
 
-    ctx = ireert.SystemContext(
-        vm_modules=vm_modules,
-        config=config,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.hf_model_name,
-        use_fast=False,
-        use_auth_token=args.hf_auth_token,
-    )
+    # Create the system context with the given configuration and modules
+    ctx = ireert.SystemContext(vm_modules=vm_modules, config=config)
+
+    # Initialize the tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
+
+    # Convert the prompt to input tensor
     initial_input = tokenizer(prompt, return_tensors="pt")
     example_input_id = initial_input.input_ids
     device_inputs = [ireert.asdevicearray(config.device, example_input_id)]
 
+    # Get the compiled module
     ModuleCompiled = ctx.modules.state_update
     results = ModuleCompiled["run_initialize"](*device_inputs)
 
     def format_out(results):
+        # Convert the output to a PyTorch tensor
         return torch.tensor(results.to_host()[0][0])
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.hf_model_name,
-        torch_dtype=torch.float,
-        use_auth_token=args.hf_auth_token,
+    # Token generation loop
+    while True:
+        next_token_tensor = format_out(results)
+        yield next_token_tensor.item()  # Yield the scalar value of the tensor
+
+        # Run the next step of the model
+        results = ModuleCompiled["run_forward"](results)
+
+        # Check for the end-of-sentence token
+        if next_token_tensor.item() == tokenizer.eos_token_id and break_on_eos:
+            break
+
+
+
+def run_vmfb_comparison(args):
+    # Initialize generators with the prompt and args
+    print("Using prompt:")
+    print(args.prompt)
+    torch_gen = torch_token_generator(
+        prompt=args.prompt,
+        hf_auth_token=args.hf_auth_token,
+        hf_model_name=args.hf_model_name,
+        break_on_eos=True
     )
 
-    def get_token_from_logits(logits):
-        return torch.argmax(logits[:, -1, :], dim=1)
+    print("Generating Torch tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
+    torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
+    del torch_gen
 
-    base_model_results = model.forward(example_input_id)
-    base_model_token = get_token_from_logits(base_model_results.logits)
-    bm_pkv = base_model_results.past_key_values
-    turbine_results = []
-    torch_results = []
-    turbine_results.append(format_out(results))
-    torch_results.append(int(base_model_token))
-    while base_model_token != 2:
-        results = ModuleCompiled["run_forward"](results)
-        base_model_results = model.forward(
-            torch.unsqueeze(base_model_token, 0), past_key_values=bm_pkv
-        )
-        base_model_token = get_token_from_logits(base_model_results.logits)
+    # run turbine until an equal number of tokens has been generated
+    print("Generating Turbine tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
+    turbine_gen = turbine_token_generator(
+        prompt=args.prompt,
+        hf_model_name=args.hf_model_name,
+        vmfb_path=args.vmfb_path,
+        external_weight_file=args.external_weight_file,
+        hf_auth_token=args.hf_auth_token,
+        break_on_eos=False
+    )
+    turbine_tokens = []
+    for _ in tqdm(range(len(torch_tokens)), desc= "Generating Turbine tokens"):
+        token = next(turbine_gen)
+        turbine_tokens.append(token)
+    del turbine_gen
+        
 
-        bm_pkv = base_model_results.past_key_values
-        # uncomment to see tokens as they are emittd
-        # print(f"pytorch: {tokenizer.decode(base_model_token)}")
-        # print(f"turbine: {tokenizer.decode(format_out(results))}")
-        turbine_results.append(format_out(results))
-        torch_results.append(int(base_model_token[0]))
-
-    print("turbine output: ")
-    print(tokenizer.decode(turbine_results))
-    print("\ntorch output: ")
-    print(tokenizer.decode(torch_results))
+    # Decode and print the outputs
+    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_name, use_fast=False, use_auth_token=args.hf_auth_token)
+    print("Turbine output: ")
+    print(tokenizer.decode(torch.tensor(turbine_tokens).numpy()))
+    print("\nTorch output: ")
+    print(tokenizer.decode(torch.tensor(torch_tokens).numpy()))
 
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    print(args.compile_to)
     if args.run_vmfb:
         run_vmfb_comparison(args)
     else:
-        mod_str, _ = export_transformer_model(
-            args.hf_model_name,
-            args.hf_auth_token,
-            args.compile_to,
-            args.external_weights,
-            args.external_weight_file,
-            args.quantization,
-            args.precision,
+        from compile_hf_transformer_model import compile_hf_transformer_model
+        mod_str, _ = compile_hf_transformer_model(
+            hf_model_name = args.hf_model_name,
+            hf_auth_token = args.hf_auth_token,
+            compile_to = args.compile_to,
+            external_weights = args.external_weights,
+            external_weight_file = args.external_weight_file,
+            quantization = args.quantization,
+            precision = args.precision,
         )
         safe_name = args.hf_model_name.split("/")[-1].strip()
         safe_name = re.sub("-", "_", safe_name)
