@@ -19,48 +19,6 @@ from tqdm import tqdm
 
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
-DEFAULT_PROMPT = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
-"""
-
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--run_vmfb", action="store_true")
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument(
-    "--test",
-    action="store_true",
-    help="run stateless tests instead of exporting",
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="meta-llama/Llama-2-7b-chat-hf",
-)
-parser.add_argument("--quantization", type=str, default="None")
-parser.add_argument("--external_weight_file", type=str, default="")
-parser.add_argument("--vmfb_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
-)
-parser.add_argument(
-    "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
-)
-parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
-
-
-# TODO (Dan): replace this with a file once I figure out paths on windows exe
-json_schema = """
-[1, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}]}]
-"""
 
 
 def torch_token_generator(prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False):
@@ -167,66 +125,80 @@ def turbine_token_generator(
         if next_token_tensor.item() == tokenizer.eos_token_id and break_on_eos:
             break
 
-
-
-def run_vmfb_comparison(args):
-    # Initialize generators with the prompt and args
+def run_vmfb_comparison(prompt, hf_auth_token, hf_model_name, vmfb_path, external_weight_file, break_on_eos=True):
+    # Initialize generators with the prompt and specific arguments
     print("Using prompt:")
-    print(args.prompt)
+    print(prompt)
     torch_gen = torch_token_generator(
-        prompt=args.prompt,
-        hf_auth_token=args.hf_auth_token,
-        hf_model_name=args.hf_model_name,
-        break_on_eos=True
+        prompt=prompt,
+        hf_auth_token=hf_auth_token,
+        hf_model_name=hf_model_name,
+        break_on_eos=break_on_eos
     )
 
     print("Generating Torch tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
     torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
     del torch_gen
 
-    # run turbine until an equal number of tokens has been generated
+    # Run turbine until an equal number of tokens has been generated
     print("Generating Turbine tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
     turbine_gen = turbine_token_generator(
-        prompt=args.prompt,
-        hf_model_name=args.hf_model_name,
-        vmfb_path=args.vmfb_path,
-        external_weight_file=args.external_weight_file,
-        hf_auth_token=args.hf_auth_token,
-        break_on_eos=False
+        prompt=prompt,
+        hf_model_name=hf_model_name,
+        vmfb_path=vmfb_path,
+        external_weight_file=external_weight_file,
+        hf_auth_token=hf_auth_token,
+        break_on_eos=break_on_eos
     )
     turbine_tokens = []
-    for _ in tqdm(range(len(torch_tokens)), desc= "Generating Turbine tokens"):
+    for _ in tqdm(range(len(torch_tokens)), desc="Generating Turbine tokens"):
         token = next(turbine_gen)
         turbine_tokens.append(token)
     del turbine_gen
-        
 
     # Decode and print the outputs
-    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_name, use_fast=False, use_auth_token=args.hf_auth_token)
+    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
     print("Turbine output: ")
     print(tokenizer.decode(torch.tensor(turbine_tokens).numpy()))
     print("\nTorch output: ")
     print(tokenizer.decode(torch.tensor(torch_tokens).numpy()))
 
 
+
+DEFAULT_PROMPT = """<s>[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
+"""
+
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
+parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+)
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    help="HF model name",
+    default="meta-llama/Llama-2-7b-chat-hf",
+)
+parser.add_argument("--vmfb_path", type=str, default="")
+parser.add_argument("--external_weights", type=str, default="")
+
+
+
 if __name__ == "__main__":
+    """
+    By default, this runs a chat demo with the model.
+    To export vmfb, run with --compile_to vmfb
+    To export torch, run with --compile_to torch
+    """
     args = parser.parse_args()
-    print(args.compile_to)
-    if args.run_vmfb:
-        run_vmfb_comparison(args)
-    else:
-        from compile_hf_transformer_model import compile_hf_transformer_model
-        mod_str, _ = compile_hf_transformer_model(
-            hf_model_name = args.hf_model_name,
-            hf_auth_token = args.hf_auth_token,
-            compile_to = args.compile_to,
-            external_weights = args.external_weights,
-            external_weight_file = args.external_weight_file,
-            quantization = args.quantization,
-            precision = args.precision,
-        )
-        safe_name = args.hf_model_name.split("/")[-1].strip()
-        safe_name = re.sub("-", "_", safe_name)
-        with open(f"{safe_name}.mlir", "w+") as f:
-            f.write(mod_str)
-        print("Saved to ", safe_name + ".mlir")
+    run_vmfb_comparison(
+        prompt=args.prompt,
+        hf_auth_token=args.hf_auth_token,
+        hf_model_name=args.hf_model_name,
+        vmfb_path=args.vmfb_path,
+        external_weight_file=args.external_weights,
+        break_on_eos=False,
+    )

@@ -2,6 +2,7 @@
 
 # Include other necessary imports and any relevant constants
 
+import os
 import re
 from typing import Tuple
 import safetensors
@@ -14,6 +15,17 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Tuple, Literal
 
 from turbine_models.custom_models import remap_gguf
+
+
+
+
+
+# TODO (Dan): replace this with a file once I figure out paths on windows exe
+json_schema = """
+[1, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}]}]
+"""
+
+
 
 # TODO (Dan): replace this with a file once I figure out paths on windows exe
 json_schema = """
@@ -80,7 +92,7 @@ def save_vmfb(module_str, vmfb_file):
     )
     with open(vmfb_file, "wb+") as f:
         f.write(flatbuffer_blob)
-    print("saved to ", vmfb_file + ".vmfb")
+    print("saved to ", vmfb_file)
 
 
 def compile_hf_transformer_model(
@@ -88,7 +100,6 @@ def compile_hf_transformer_model(
     compile_to: Literal["torch", "linalg", "vmfb"] = "torch",
     hf_auth_token=None,
     external_weights=None,
-    external_weight_file=None,
     quantization=None,
     precision=None,
 )  -> Tuple[str, AutoTokenizer]:
@@ -136,12 +147,14 @@ def compile_hf_transformer_model(
 
     mapper = {}
     if external_weights is not None:
-        if external_weights == "safetensors":
+        if external_weights == "safetensors" or external_weights.endswith("safetensors"):
             mod_params = dict(mod.named_parameters())
             for name in mod_params:
                 mapper["params." + name] = name
-            if external_weight_file:
-                safetensors.torch.save_file(mod_params, external_weight_file)
+            # check if there's a file
+            if external_weights.endswith(".safetensors"):
+                external_weights_file = external_weights
+                safetensors.torch.save_file(mod_params, external_weights_file)
 
         elif external_weights == "gguf":
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
@@ -231,20 +244,80 @@ def compile_hf_transformer_model(
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     pre_import_passes = []
-    if quantization == "int4" and not compile_to == "linalg":
+    if quantization == "int4":
         from shark_turbine.transforms.quantization import mm_group_quant
         pre_import_passes.append(mm_group_quant.MMGroupQuantRewriterPass)
     inst = StateUpdateModule(context=Context(), import_to=import_to, pre_import_passes=pre_import_passes)
     module_str = str(CompiledModule.get_mlir_module(inst))
     safe_name = hf_model_name.split("/")[-1].strip()
-    safe_name = re.sub("-", "_", safe_name)
-
-
-    if compile_to == "vmfb":
-        save_vmfb(module_str, safe_name+".vmfb")
-        return module_str, tokenizer
+    safe_name = re.sub("-", "_", safe_name)    
         
     return module_str, tokenizer
 
 
 
+import argparse
+
+parser = argparse.ArgumentParser()
+def dir_path(path): # check arguments during parse
+    if os.path.isdir(path):
+        return path
+    else:
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except:
+            raise argparse.ArgumentTypeError(f"save_path:{path} is not a valid path")
+parser.add_argument(
+    "--hf_model_name",
+    type=str,
+    help="HF model name",
+    default="meta-llama/Llama-2-7b-chat-hf",
+)
+parser.add_argument(
+    "--hf_auth_token", type=str, help="The Hugging Face auth token for downloading the module. Optional if you have done `huggingface-cli login`"
+)
+parser.add_argument("--compile_to", type=str, help="What MLIR IR to save to. Options: torch, linalg")
+parser.add_argument("--save_mlir", type=bool, default=True, help="Save mlir file")
+parser.add_argument("--save_vmfb", type=bool, default=True, help="Save vmfb file")
+parser.add_argument(
+    "--external_weights",
+    type=str,
+    default=None,
+    help="Specifying external weights saves ir/vmfb without global weights for size and readability, options [None, gguf, safetensors, path to safetensors file]",
+)
+parser.add_argument("--save_path", type=dir_path, default="./")
+parser.add_argument("--quantization", type=str, default="None", help="")
+parser.add_argument(
+    "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
+)
+
+
+if __name__ == "__main__":
+    """
+    By default, this runs a chat demo with the model.
+    To export vmfb, run with --compile_to vmfb
+    To export torch, run with --compile_to torch
+    """
+    args = parser.parse_args()
+    print(args.compile_to)
+    
+    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+
+    mod_str, _ = compile_hf_transformer_model(
+        hf_model_name = args.hf_model_name,
+        hf_auth_token = args.hf_auth_token,
+        compile_to = args.compile_to,
+        external_weights = args.external_weights,
+        quantization = args.quantization,
+        precision = args.precision,
+    )
+    
+    if args.save_mlir:
+        with open(f"{safe_name}.mlir", "w+") as f:
+            f.write(mod_str)
+        print("Saved to ", safe_name + ".mlir")
+
+    if args.save_vmfb:
+        save_vmfb(mod_str, safe_name+".vmfb")
