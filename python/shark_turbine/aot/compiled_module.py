@@ -431,6 +431,39 @@ class CompiledModule(metaclass=CompiledModuleMeta):
                 print(module_op, file=sys.stderr)
                 raise
 
+    def save_vmfb(inst: "CompiledModule", path: Union[Path, str]):
+        flags = [
+        "--iree-input-type=torch",
+        "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+        "--mlir-print-debuginfo",
+        "--mlir-print-op-on-diagnostic=false",
+        "--iree-llvmcpu-target-cpu-features=host",
+        "--iree-llvmcpu-target-triple=x86_64-linux-gnu",
+        "--iree-llvmcpu-enable-microkernels",
+        "--iree-llvmcpu-stack-allocation-limit=256000",
+        "--iree-stream-resource-index-bits=64",
+        "--iree-vm-target-index-bits=64",
+        "--iree-vm-bytecode-module-strip-source-map=true",
+        "--iree-util-zero-fill-elided-attrs",
+        "--iree-vm-target-truncate-unsupported-floats",
+        "--iree-codegen-check-ir-before-llvm-conversion=false",
+        "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
+        "--iree-opt-const-expr-hoisting=False",
+        ]
+
+        import iree.compiler as ireec
+    
+        module_str = CompiledModule.get_mlir_module(inst)
+
+        flatbuffer_blob = ireec.compile_str(
+            module_str,
+            target_backends=["llvm-cpu"],
+            extra_args=flags,
+        )
+        with open(path, "wb+") as f:
+            f.write(flatbuffer_blob)
+        print("saved to ", path)
+
     @staticmethod
     def save_mlir(inst: "CompiledModule", path: Union[Path, str]):
         """Saves a snapshot of the MLIR module in this CompiledModule to a file.

@@ -1,7 +1,9 @@
+from typing import Literal
 from transformers import AutoModel, AutoTokenizer, AutoConfig
 import torch
 import shark_turbine.aot as aot
 
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 class HFTransformerBuilder:
     """
@@ -18,11 +20,15 @@ class HFTransformerBuilder:
     def __init__(
         self,
         example_input: torch.Tensor,
-        hf_id: str,
+        hf_id: str = None,
         auto_model: AutoModel = AutoModel,
         auto_tokenizer: AutoTokenizer = None,
         auto_config: AutoConfig = None,
         hf_auth_token=None,
+        quantization=None,
+        precision=None,
+        external_weights=None,
+        compile_to: Literal["torch", "linalg", "vmfb"] = "torch", # only applies to llama
     ) -> None:
         self.example_input = example_input
         self.hf_id = hf_id
@@ -32,6 +38,10 @@ class HFTransformerBuilder:
         self.hf_auth_token = hf_auth_token
         self.model = None
         self.tokenizer = None
+        self.quantization = quantization
+        self.precision = precision
+        self.external_weights = external_weights
+        self.compile_to = compile_to
         self.build_model()
 
     def build_model(self) -> None:
@@ -59,6 +69,21 @@ class HFTransformerBuilder:
         Returns:
             aot.CompiledModule: The compiled module binary.
         """
-        module = aot.export(self.model, self.example_input)
-        compiled_binary = module.compile(save_to=save_to)
-        return compiled_binary
+        if isinstance(self.model, LlamaForCausalLM):
+            # use StateUpdateModule 
+            module = aot.exporter.export_llama(
+                mod = self.model,
+                compile_to = self.compile_to,
+                hf_auth_token=self.hf_auth_token,
+                external_weights=self.external_weights,
+                quantization=self.quantization,
+                precision=self.precision,
+                example_args = self.example_input,
+            )
+            compiled_binary = module.compile(save_to=save_to)
+            return compiled_binary
+            
+        else:
+            module = aot.export(self.model, self.example_input)
+            compiled_binary = module.compile(save_to=save_to)
+            return compiled_binary
