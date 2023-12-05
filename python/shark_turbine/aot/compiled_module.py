@@ -428,10 +428,10 @@ class CompiledModule(metaclass=CompiledModuleMeta):
             except MLIRError:
                 # TODO: Better error handling.
                 # See: https://github.com/nod-ai/SHARK-Turbine/issues/127
-                print(module_op, file=sys.stderr)
+                logger.error(module_op, file=sys.stderr)
                 raise
 
-    def save_vmfb(inst: "CompiledModule", path: Union[Path, str]):
+    def save_vmfb(inst: "CompiledModule", path: Union[Path, str], target_backends=["llvm-cpu"]):
         flags = [
         "--iree-input-type=torch",
         "--iree-vm-bytecode-module-output-format=flatbuffer-binary",
@@ -457,12 +457,12 @@ class CompiledModule(metaclass=CompiledModuleMeta):
 
         flatbuffer_blob = ireec.compile_str(
             module_str,
-            target_backends=["llvm-cpu"],
+            target_backends=target_backends,
             extra_args=flags,
         )
         with open(path, "wb+") as f:
             f.write(flatbuffer_blob)
-        print("saved to ", path)
+        logger.info("saved vmfb to ", path)
 
     @staticmethod
     def save_mlir(inst: "CompiledModule", path: Union[Path, str]):

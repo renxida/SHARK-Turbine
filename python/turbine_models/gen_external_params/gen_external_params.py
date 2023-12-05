@@ -10,7 +10,7 @@ parser.add_argument(
     "--hf_model_name",
     type=str,
     help="HF model name ID",
-    default="meta-llama/Llama-2-7b-chat-hf",
+    default="llSourcell/medllama2_7b",
 )
 parser.add_argument("--quantization", type=str, default="int4")
 parser.add_argument("--weight_path", type=str, default="")

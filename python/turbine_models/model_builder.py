@@ -70,8 +70,10 @@ class HFTransformerBuilder:
             aot.CompiledModule: The compiled module binary.
         """
         if isinstance(self.model, LlamaForCausalLM):
+            # todo: generalize this to other models that export global state
             # use StateUpdateModule 
-            module = aot.exporter.export_llama(
+            from turbine_models.custom_models.stateless_llama_export import stateless_llama_export
+            module = stateless_llama_export(
                 mod = self.model,
                 compile_to = self.compile_to,
                 hf_auth_token=self.hf_auth_token,
