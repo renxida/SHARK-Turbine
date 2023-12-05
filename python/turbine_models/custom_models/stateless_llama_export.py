@@ -2,6 +2,13 @@
 
 # Include other necessary imports and any relevant constants
 
+from iree.compiler.api import (
+    Invocation,
+    Session,
+    Source,
+    Output,
+)
+
 import re
 from typing import Tuple
 import safetensors
@@ -12,7 +19,7 @@ import torch
 from torch.utils import _pytree as pytree
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Tuple, Literal
-
+from shark_turbine.aot.exporter import ExportOutput
 from turbine_models.custom_models import remap_gguf
 
 # TODO (Dan): replace this with a file once I figure out paths on windows exe
@@ -80,10 +87,10 @@ def save_vmfb(module_str, vmfb_file):
     )
     with open(vmfb_file, "wb+") as f:
         f.write(flatbuffer_blob)
-    print("saved to ", vmfb_file + ".vmfb")
+    print("saved to ", vmfb_file)
 
 
-def compile_hf_transformer_model(
+def stateless_llama_export(
     hf_model_name,
     compile_to: Literal["torch", "linalg", "vmfb"] = "torch",
     hf_auth_token=None,
@@ -91,7 +98,7 @@ def compile_hf_transformer_model(
     external_weight_file=None,
     quantization=None,
     precision=None,
-)  -> Tuple[str, AutoTokenizer]:
+) -> ExportOutput:
     """
     Exports the transformer model specified by hf_model_name to a chosen format.
 
@@ -120,11 +127,7 @@ def compile_hf_transformer_model(
     if precision == "f16":
         mod = mod.half()
         dtype = torch.float16
-    tokenizer = AutoTokenizer.from_pretrained(
-        hf_model_name,
-        use_fast=False,
-        token=hf_auth_token,
-    )
+
     # TODO: generate these values instead of magic numbers
     HEADS = 32
     HIDDEN_DIM = 128
@@ -147,7 +150,7 @@ def compile_hf_transformer_model(
             tensor_mapper = remap_gguf.TensorNameMap(remap_gguf.MODEL_ARCH.LLAMA, HEADS)
             mapper = tensor_mapper.mapping
 
-    class StateUpdateModule(CompiledModule):
+    class StateUpdateModule(CompiledModule, export_name=mod._get_name()):
         """
         The class handles operations related to updating and slicing the global state of the model.
         Inherits from shark_turbine.aot.compiled_module.CompiledModule
@@ -231,7 +234,7 @@ def compile_hf_transformer_model(
 
     import_to = "INPUT" if compile_to == "linalg" else "IMPORT"
     pre_import_passes = []
-    if quantization == "int4" and not compile_to == "linalg":
+    if quantization == "int4":
         from shark_turbine.transforms.quantization import mm_group_quant
         pre_import_passes.append(mm_group_quant.MMGroupQuantRewriterPass)
     inst = StateUpdateModule(context=Context(), import_to=import_to, pre_import_passes=pre_import_passes)
@@ -239,12 +242,79 @@ def compile_hf_transformer_model(
     safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
 
+    session = Session()
+    # There are some bugs with respect to Session/context interop that we
+    # haven't squashed yet. For now, default everyone to round-tripping
+    # via bytecode vs sharing the context between the importer/compiler.
+    importer_uses_session = False and not _is_windows
+    if importer_uses_session:
+        context = session.context
+    else:
+        context = Context()
 
-    if compile_to == "vmfb":
-        save_vmfb(module_str, safe_name+".vmfb")
-        return module_str, tokenizer
-        
-    return module_str, tokenizer
+    return ExportOutput(session, inst, importer_uses_session=importer_uses_session)
+    
+    # return module_str, tokenizer
 
 
 
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+    )
+    parser.add_argument("--compile_to", type=str, help="torch, linalg")
+    parser.add_argument("--save_vmfb", type=bool, help="save to vmfb", default=True)
+    parser.add_argument("--save_mlir", type=bool, help="save to mlir", default=True)
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="run stateless tests instead of exporting",
+    )
+    parser.add_argument(
+        "--hf_model_name",
+        type=str,
+        help="HF model name",
+        default="meta-llama/Llama-2-7b-chat-hf",
+    )
+    parser.add_argument("--quantization", type=str, default="None")
+    parser.add_argument("--external_weight_file", type=str, default="")
+    parser.add_argument(
+        "--external_weights",
+        type=str,
+        default=None,
+        help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
+    )
+    parser.add_argument(
+        "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
+    )
+    args = parser.parse_args()
+
+    print("Running stateless_llama_export.py with")
+    from pprint import pprint
+    pprint(vars(args))
+
+ 
+    exported = stateless_llama_export(
+        hf_model_name = args.hf_model_name,
+        hf_auth_token = args.hf_auth_token,
+        compile_to = args.compile_to,
+        external_weights = args.external_weights,
+        external_weight_file = args.external_weight_file,
+        quantization = args.quantization,
+        precision = args.precision,
+    )
+    safe_name = args.hf_model_name.split("/")[-1].strip()
+    safe_name = re.sub("-", "_", safe_name)
+
+    mod_str = str(exported.mlir_module)
+    if args.save_mlir:
+        with open(safe_name + ".mlir", "w") as f:
+            f.write(mod_str)
+        print("Saved to ", safe_name + ".mlir")
+
+    if args.save_vmfb:
+        save_vmfb(mod_str, safe_name+".vmfb")
+    print("Saved to ", safe_name + ".vmfb")
