@@ -19,42 +19,6 @@ from tqdm import tqdm
 
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
-DEFAULT_PROMPT = """<s>[INST] <<SYS>>
-Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
-"""
-
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--run_vmfb", action="store_true")
-parser.add_argument(
-    "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-)
-parser.add_argument("--compile_to", type=str, help="torch, linalg, vmfb")
-parser.add_argument(
-    "--test",
-    action="store_true",
-    help="run stateless tests instead of exporting",
-)
-parser.add_argument(
-    "--hf_model_name",
-    type=str,
-    help="HF model name",
-    default="meta-llama/Llama-2-7b-chat-hf",
-)
-parser.add_argument("--quantization", type=str, default="None")
-parser.add_argument("--external_weight_file", type=str, default="")
-parser.add_argument("--vmfb_path", type=str, default="")
-parser.add_argument(
-    "--external_weights",
-    type=str,
-    default=None,
-    help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
-)
-parser.add_argument(
-    "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
-)
-parser.add_argument("--prompt", type=str, default=DEFAULT_PROMPT)
 
 
 def torch_token_generator(prompt, hf_model_name: str, hf_auth_token: str, break_on_eos=False):
@@ -162,15 +126,33 @@ def turbine_token_generator(
             break
 
 
+DEFAULT_PROMPT = """<s>[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
+"""
+def run_vmfb_comparison(
+        prompt: str = DEFAULT_PROMPT,
+        hf_auth_token: str = None,
+        hf_model_name: str = "llSourcell/medllama2_7b",
+        vmfb_path: str = None,
+        external_weight_file:str = ""):
+    """
+    Runs the VMFB comparison between the Torch and Turbine models.
 
-def run_vmfb_comparison(args):
-    # Initialize generators with the prompt and args
+    :param prompt: The input prompt for the model.
+    :param hf_auth_token: Hugging Face authorization token (optional).
+    :param hf_model_name: The name of the Hugging Face model.
+    :param vmfb_path: Path to the .vmfb model file. Leaving this empty will result in searching for model_name.vmfb in the current directory.
+    :param external_weight_file: Path to the external weight file (optional).
+    """
+    # Initialize generators with the prompt and explicit arguments
     print("Using prompt:")
-    print(args.prompt)
+    print(prompt)
+
+    # Initializing and generating tokens using Torch generator
     torch_gen = torch_token_generator(
-        prompt=args.prompt,
-        hf_auth_token=args.hf_auth_token,
-        hf_model_name=args.hf_model_name,
+        prompt=prompt,
+        hf_auth_token=hf_auth_token,
+        hf_model_name=hf_model_name,
         break_on_eos=True
     )
 
@@ -178,35 +160,31 @@ def run_vmfb_comparison(args):
     torch_tokens = list(tqdm(torch_gen, desc="Generating Torch tokens"))
     del torch_gen
 
-    # run turbine until an equal number of tokens has been generated
+    # Initializing and generating tokens using Turbine generator
     print("Generating Turbine tokens... The pipeline needs to be initialized first so the first few tokens may take a while.")
     turbine_gen = turbine_token_generator(
-        prompt=args.prompt,
-        hf_model_name=args.hf_model_name,
-        vmfb_path=args.vmfb_path,
-        external_weight_file=args.external_weight_file,
-        hf_auth_token=args.hf_auth_token,
+        prompt=prompt,
+        hf_model_name=hf_model_name,
+        vmfb_path=vmfb_path,
+        external_weight_file=external_weight_file,
+        hf_auth_token=hf_auth_token,
         break_on_eos=False
     )
     turbine_tokens = []
-    for _ in tqdm(range(len(torch_tokens)), desc= "Generating Turbine tokens"):
+    for _ in tqdm(range(len(torch_tokens)), desc="Generating Turbine tokens"):
         token = next(turbine_gen)
         turbine_tokens.append(token)
     del turbine_gen
-        
 
     # Decode and print the outputs
-    tokenizer = AutoTokenizer.from_pretrained(args.hf_model_name, use_fast=False, use_auth_token=args.hf_auth_token)
+    tokenizer = AutoTokenizer.from_pretrained(hf_model_name, use_fast=False, use_auth_token=hf_auth_token)
     print("Turbine output: ")
     print(tokenizer.decode(torch.tensor(turbine_tokens).numpy()))
     print("\nTorch output: ")
     print(tokenizer.decode(torch.tensor(torch_tokens).numpy()))
 
 
+
 if __name__ == "__main__":
-    args = parser.parse_args()
-    print(args.compile_to)
-    if args.run_vmfb:
-        run_vmfb_comparison(args)
-    else:
-        pass
+    import fire
+    fire.Fire(run_vmfb_comparison)

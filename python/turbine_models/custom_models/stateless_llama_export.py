@@ -22,10 +22,9 @@ from typing import Tuple, Literal
 from shark_turbine.aot.exporter import ExportOutput
 from turbine_models.custom_models import remap_gguf
 
+from .stateless_llama_state_schema import state_schema
+
 # TODO (Dan): replace this with a file once I figure out paths on windows exe
-json_schema = """
-[1, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}, {"type": "builtins.tuple", "context": "null", "children_spec": [{"type": null, "context": null, "children_spec": []}, {"type": null, "context": null, "children_spec": []}]}]}]
-"""
 
 
 BATCH_SIZE = 1
@@ -87,17 +86,16 @@ def save_vmfb(module_str, vmfb_file):
     )
     with open(vmfb_file, "wb+") as f:
         f.write(flatbuffer_blob)
-    print("saved to ", vmfb_file)
 
 
 def stateless_llama_export(
-    hf_model_name,
+    hf_model_name: str="llSourcell/medllama2_7b",
     compile_to: Literal["torch", "linalg", "vmfb"] = "torch",
-    hf_auth_token=None,
-    external_weights=None,
-    external_weight_file=None,
-    quantization=None,
-    precision=None,
+    hf_auth_token: str=None,
+    external_weights: str=None,
+    external_weight_file: str=None,
+    quantization: Literal[None, "int4"] = "int4",
+    precision: Literal["fp16", "fp32"] = "fp16",
 ) -> ExportOutput:
     """
     Exports the transformer model specified by hf_model_name to a chosen format.
@@ -116,7 +114,7 @@ def stateless_llama_export(
         None: if compile_to == "vmfb". Will save to vmfb file.
     """
     print("Compiling model to", compile_to)
-    state_schema = pytree.treespec_loads(json_schema)
+    
 
     mod = AutoModelForCausalLM.from_pretrained(
         hf_model_name,
@@ -258,63 +256,95 @@ def stateless_llama_export(
 
 
 
-if __name__ == "__main__":
-    import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-    )
-    parser.add_argument("--compile_to", type=str, help="torch, linalg")
-    parser.add_argument("--save_vmfb", type=bool, help="save to vmfb", default=True)
-    parser.add_argument("--save_mlir", type=bool, help="save to mlir", default=True)
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="run stateless tests instead of exporting",
-    )
-    parser.add_argument(
-        "--hf_model_name",
-        type=str,
-        help="HF model name",
-        default="meta-llama/Llama-2-7b-chat-hf",
-    )
-    parser.add_argument("--quantization", type=str, default="None")
-    parser.add_argument("--external_weight_file", type=str, default="")
-    parser.add_argument(
-        "--external_weights",
-        type=str,
-        default=None,
-        help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
-    )
-    parser.add_argument(
-        "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
-    )
-    args = parser.parse_args()
+#     import argparse
 
-    print("Running stateless_llama_export.py with")
-    from pprint import pprint
-    pprint(vars(args))
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument(
+#         "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
+#     )
+#     parser.add_argument("--compile_to", type=str, help="torch, linalg")
+#     parser.add_argument("--save_vmfb", type=bool, help="save to vmfb", default=True)
+#     parser.add_argument("--save_mlir", type=bool, help="save to mlir", default=True)
+#     parser.add_argument(
+#         "--test",
+#         action="store_true",
+#         help="run stateless tests instead of exporting",
+#     )
+#     parser.add_argument(
+#         "--hf_model_name",
+#         type=str,
+#         help="HF model name",
+#         default="meta-llama/Llama-2-7b-chat-hf",
+#     )
+#     parser.add_argument("--quantization", type=str, default="None")
+#     parser.add_argument("--external_weight_file", type=str, default="")
+#     parser.add_argument(
+#         "--external_weights",
+#         type=str,
+#         default=None,
+#         help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
+#     )
+#     parser.add_argument(
+#         "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
+#     )
+#     args = parser.parse_args()
 
- 
+#     print("Running stateless_llama_export.py with")
+#     from pprint import pprint
+#     pprint(vars(args))
+
+def cli_wrapper(
+    hf_model_name: str="llSourcell/medllama2_7b",
+    compile_to: Literal["torch", "linalg", "vmfb"] = "torch",
+    hf_auth_token: str=None,
+    external_weights: Literal[None, "safetensors", "gguf"] = "safetensors",
+    external_weight_file: str=None,
+    quantization: Literal[None, "int4"] = "int4",
+    precision: Literal["fp16", "fp32"] = "fp16",
+    write_mlir: bool = True,
+    write_vmfb: bool = True,
+) -> None:
+    """
+    CLI wrapper for stateless_llama_export.
+
+    :param hf_model_name: Name of the Hugging Face model to be exported.
+    :param hf_auth_token: Authentication token for Hugging Face.
+    :param compile_to: Target compilation format. Can be one of the following: Literal["torch", "linalg", "vmfb"]
+    :param external_weights: Specifies the handling of external weights.
+    :param external_weight_file: Path to the external weight file. If "", save no external weights. If None, saves to hf_model_name_{precision}_{quantization}.{external_weights}
+    :param quantization: Type of quantization to apply.
+    :param precision: Precision of the model parameters (e.g., 'fp16').
+    :param save_mlir: Whether to save the MLIR file.
+
+    """
+
     exported = stateless_llama_export(
-        hf_model_name = args.hf_model_name,
-        hf_auth_token = args.hf_auth_token,
-        compile_to = args.compile_to,
-        external_weights = args.external_weights,
-        external_weight_file = args.external_weight_file,
-        quantization = args.quantization,
-        precision = args.precision,
+        hf_model_name=hf_model_name,
+        compile_to=compile_to,
+        hf_auth_token=hf_auth_token,
+        external_weights=external_weights,
+        external_weight_file=external_weight_file,
+        quantization=quantization,
+        precision=precision,
     )
-    safe_name = args.hf_model_name.split("/")[-1].strip()
+    
+    safe_name = hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
+    # medllama2_7b_f16_int4.safetensors 
+    if external_weights is not None and external_weight_file is None:
+        external_weight_file = f"{safe_name}_{precision}_{quantization}.{external_weights}"
 
     mod_str = str(exported.mlir_module)
-    if args.save_mlir:
-        with open(safe_name + ".mlir", "w") as f:
+    if write_mlir:
+        with open(safe_name + ".mlir", "w+") as f:
             f.write(mod_str)
         print("Saved to ", safe_name + ".mlir")
 
-    if args.save_vmfb:
+    if write_vmfb:
         save_vmfb(mod_str, safe_name+".vmfb")
     print("Saved to ", safe_name + ".vmfb")
+
+if __name__ == "__main__":
+    import fire
+    fire.Fire(cli_wrapper)
