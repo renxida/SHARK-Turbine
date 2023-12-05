@@ -173,7 +173,7 @@ parser.add_argument(
 parser.add_argument("--save_path", type=dir_path, default="./")
 parser.add_argument("--quantization", type=str, default="int4", help="")
 parser.add_argument(
-    "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
+    "--precision", type=str, default="f16", help="dtype of model [f16, f32]"
 )
 
 args = parser.parse_args()
@@ -198,7 +198,6 @@ if __name__ == "__main__":
         precision=args.precision,
         compile_to=args.compile_to,
     )
-    model_builder.build_model()
 
     safe_name = args.hf_model_name.split("/")[-1].strip()
     safe_name = re.sub("-", "_", safe_name)
@@ -245,11 +244,11 @@ if __name__ == "__main__":
 
         chat_history = chat_history + f"User: {user_input}\nAssistant: "
         encoded_input = chatbot.tokenizer.encode(user_input)
-        for token in tqdm(encoded_input, desc="Consuming tokens", leave=True, enable=None):  # Process each token in user input
+        for token in tqdm(encoded_input, desc="Consuming tokens", leave=False):  # Process each token in user input
             chatbot.put(torch.tensor([[token]]))  # Add an extra dimension to the tensor
 
         response = ''
-        for _ in tqdm(range(20), desc="Producing tokens", leave=True, enable=None):
+        for _ in tqdm(range(20), desc="Producing tokens", leave=False):
             token = chatbot.get()
             if token.item() == chatbot.tokenizer.eos_token_id:  # Break on end of sentence token
                 break
