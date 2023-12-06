@@ -251,48 +251,7 @@ def stateless_llama_export(
         context = Context()
 
     return ExportOutput(session, inst, importer_uses_session=importer_uses_session)
-    
-    # return module_str, tokenizer
 
-
-
-
-#     import argparse
-
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument(
-#         "--hf_auth_token", type=str, help="The Hugging Face auth token, required"
-#     )
-#     parser.add_argument("--compile_to", type=str, help="torch, linalg")
-#     parser.add_argument("--save_vmfb", type=bool, help="save to vmfb", default=True)
-#     parser.add_argument("--save_mlir", type=bool, help="save to mlir", default=True)
-#     parser.add_argument(
-#         "--test",
-#         action="store_true",
-#         help="run stateless tests instead of exporting",
-#     )
-#     parser.add_argument(
-#         "--hf_model_name",
-#         type=str,
-#         help="HF model name",
-#         default="meta-llama/Llama-2-7b-chat-hf",
-#     )
-#     parser.add_argument("--quantization", type=str, default="None")
-#     parser.add_argument("--external_weight_file", type=str, default="")
-#     parser.add_argument(
-#         "--external_weights",
-#         type=str,
-#         default=None,
-#         help="saves ir/vmfb without global weights for size and readability, options [gguf, safetensors]",
-#     )
-#     parser.add_argument(
-#         "--precision", type=str, default="fp16", help="dtype of model [f16, f32]"
-#     )
-#     args = parser.parse_args()
-
-#     print("Running stateless_llama_export.py with")
-#     from pprint import pprint
-#     pprint(vars(args))
 
 def cli_wrapper(
     hf_model_name: str="llSourcell/medllama2_7b",
