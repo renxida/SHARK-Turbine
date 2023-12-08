@@ -18,6 +18,8 @@ import safetensors
 from tqdm import tqdm
 from typing import Literal
 
+import turbine_models.custom_models.stateless_llama as llama
+
 BATCH_SIZE = 1
 MAX_STEP_SEQ = 4095
 
@@ -232,3 +234,88 @@ def get_turbine_vmfb_string(
 
     turbine_str = tokenizer.decode(torch.tensor(turbine_tokens).numpy())
     return turbine_str
+
+
+
+def run_vmfb_comparison(quantization="unquantized", precision="f32", device="llvm-cpu"):
+    """
+    Test that the vmfb model produces the same output as the torch model
+
+    Precision can be 16 or 32, using 16 for speed and memory.
+
+    For VMFB, quantization can be int4 or None, but right now only using none for compatibility with torch.
+    """
+    quantization = "unquantized"
+    precision = "f32"
+
+    llama.export_transformer_model(
+        hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        hf_auth_token=None,
+        compile_to="vmfb",
+        external_weights="safetensors",
+        # external_weight_file="Llama-2-7b-chat-hf-function-calling-v2_f16_int4.safetensors", Do not export weights because this doesn't get quantized
+        quantization=quantization,
+        precision=precision,
+        device=device,
+        target_triple="host",
+    )
+
+    from turbine_models.gen_external_params.gen_external_params import (
+        gen_external_params,
+    )
+
+    gen_external_params(
+        hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        quantization=quantization,
+        hf_auth_token=None,
+        precision=precision,   
+    )
+
+    DEFAULT_PROMPT = """<s>[INST] <<SYS>>
+Be concise. You are a helpful, respectful and honest assistant. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information. <</SYS>> hi what are you? [/INST]
+"""
+
+    torch_str_cache_path = f"python/turbine_models/tests/vmfb_comparison_cached_torch_output_{precision}_{quantization}.txt"
+    # if cached, just read
+    if os.path.exists(torch_str_cache_path):
+        with open(torch_str_cache_path, "r") as f:
+            torch_str = f.read()
+    else:
+        from .vmfb_comparison import get_torch_string
+
+        torch_str = get_torch_string(
+            prompt=DEFAULT_PROMPT,
+            hf_auth_token=None,
+            hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+            tokens_to_compare=50,
+            precision=precision,
+            quantization=quantization,
+        )
+
+        with open(torch_str_cache_path, "w") as f:
+            f.write(torch_str)
+
+    turbine_str = get_turbine_vmfb_string(
+        prompt=DEFAULT_PROMPT,
+        hf_auth_token=None,
+        hf_model_name="Trelis/Llama-2-7b-chat-hf-function-calling-v2",
+        vmfb_path="Llama_2_7b_chat_hf_function_calling_v2.vmfb",
+        external_weight_file=f"Llama_2_7b_chat_hf_function_calling_v2_{precision}_{quantization}.safetensors",
+        tokens_to_compare=50,
+        device=device,
+    )
+
+    torch_str = torch_str[: len(turbine_str)]
+
+    import difflib
+
+    # Calculate and print diff
+    diff = difflib.unified_diff(
+        torch_str.splitlines(keepends=True),
+        turbine_str.splitlines(keepends=True),
+        fromfile="torch_str",
+        tofile="turbine_str",
+        lineterm="",
+    )
+
+    assert torch_str == turbine_str, "".join(diff)
